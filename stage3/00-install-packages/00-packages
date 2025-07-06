@@ -6,3 +6,4 @@ rfkill
 policykit-1
 gvfs
 libcamera-tools
+nginx

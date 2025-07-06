@@ -11,14 +11,32 @@ for addr in 107d50c000.serial 3f215040.serial 20215040.serial fe215040.serial so
 	echo 0 > "${ROOTFS_DIR}/var/lib/systemd/rfkill/platform-${addr}:bluetooth"
 done
 
+# Enable WiFi by default
+on_chroot << EOF
+# Unblock WiFi hardware
+rfkill unblock wifi || true
+
+# Enable WiFi services
+systemctl enable wpa_supplicant
+systemctl enable NetworkManager
+
+# Set WiFi regulatory domain if specified
+if [ -v WPA_COUNTRY ]; then
+	SUDO_USER="${FIRST_USER_NAME}" raspi-config nonint do_wifi_country "${WPA_COUNTRY}"
+else
+	# Set default regulatory domain to US
+	iw reg set US || true
+fi
+EOF
+
 if [ -v WPA_COUNTRY ]; then
 	on_chroot <<- EOF
 		SUDO_USER="${FIRST_USER_NAME}" raspi-config nonint do_wifi_country "${WPA_COUNTRY}"
 	EOF
 elif [ -d "${ROOTFS_DIR}/var/lib/NetworkManager" ]; then
-	# NetworkManager unblocks all WLAN devices by default. Prevent that:
+	# Enable WiFi in NetworkManager (changed from WirelessEnabled=false)
 	cat > "${ROOTFS_DIR}/var/lib/NetworkManager/NetworkManager.state" <<- EOF
 		[main]
-		WirelessEnabled=false
+		WirelessEnabled=true
 	EOF
 fi

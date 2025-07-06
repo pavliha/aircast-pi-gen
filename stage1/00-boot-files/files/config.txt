@@ -10,6 +10,9 @@
 # Enable audio (loads snd_bcm2835)
 dtparam=audio=on
 
+# Enable WiFi hardware
+dtparam=wifi=on
+
 # Additional overlays and parameters are documented
 # /boot/firmware/overlays/README
 

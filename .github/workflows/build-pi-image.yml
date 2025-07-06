@@ -1,0 +1,137 @@
+name: Build AirCast Pi Image
+
+on:
+  push:
+    branches: [ main, develop, arm64 ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      stage_list:
+        description: 'Stages to build'
+        required: false
+        default: 'stage0 stage1 stage2 stage3'
+        type: string
+      clean_build:
+        description: 'Clean build'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  IMG_NAME: aircast-rpi-arm64
+
+jobs:
+  build:
+    runs-on: self-hosted
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup build environment
+        run: |
+          # Clean up previous builds if requested
+          if [ "${{ inputs.clean_build }}" = "true" ]; then
+            sudo rm -rf work/ deploy/image_*.zip deploy/*.log deploy/*.info
+          fi
+          
+          # Ensure we have enough space
+          df -h
+          echo "Available disk space:"
+          df -h / | tail -1 | awk '{print $4}' | sed 's/G//'
+          
+          # Clean Docker if needed
+          docker system prune -f
+          
+          # Make scripts executable
+          chmod +x build.sh build-docker.sh
+
+      - name: Configure build
+        run: |
+          # Use workflow input if provided, otherwise use default
+          if [ -n "${{ inputs.stage_list }}" ]; then
+            echo "STAGE_LIST=\"${{ inputs.stage_list }}\"" >> config
+          fi
+          
+          # Add build timestamp
+          echo "IMG_DATE=$(date +%Y-%m-%d)" >> config
+          
+          # Show final config
+          echo "Final configuration:"
+          cat config
+
+      - name: Build Pi Image
+        run: |
+          echo "Starting build at $(date)"
+          ./build-docker.sh
+          echo "Build completed at $(date)"
+
+      - name: Verify build output
+        run: |
+          echo "Build artifacts:"
+          ls -la deploy/
+          
+          # Check if image was created
+          if ls deploy/image_*.zip 1> /dev/null 2>&1; then
+            echo "✅ Image build successful"
+            for img in deploy/image_*.zip; do
+              echo "📦 $(basename $img): $(du -h $img | cut -f1)"
+            done
+          else
+            echo "❌ No image found in deploy directory"
+            exit 1
+          fi
+
+      - name: Upload Pi Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMG_NAME }}-${{ github.run_number }}
+          path: deploy/image_*.zip
+          retention-days: 30
+
+      - name: Upload build info
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-info-${{ github.run_number }}
+          path: |
+            deploy/*.info
+            deploy/*.log
+          retention-days: 7
+
+      - name: Create release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: deploy/image_*.zip
+          tag_name: ${{ github.ref_name }}
+          name: AirCast Pi Image ${{ github.ref_name }}
+          body: |
+            ## AirCast Raspberry Pi Image
+            
+            **Build Details:**
+            - Image: ${{ env.IMG_NAME }}
+            - Stages: ${{ inputs.stage_list || 'stage0 stage1 stage2 stage3' }}
+            - Built: $(date)
+            - Commit: ${{ github.sha }}
+            
+            **Installation:**
+            1. Download the `.zip` file
+            2. Extract and flash to SD card using Raspberry Pi Imager
+            3. Boot your Pi and SSH with: `ssh pi@aircast.local`
+            4. Default password: `raspberry` (change immediately)
+          draft: false
+          prerelease: false
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Clean up to save space
+          sudo rm -rf work/
+          docker system prune -f
+          
+          # Show remaining space
+          echo "Remaining disk space:"
+          df -h /

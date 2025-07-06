@@ -40,3 +40,16 @@ elif [ -d "${ROOTFS_DIR}/var/lib/NetworkManager" ]; then
 		WirelessEnabled=true
 	EOF
 fi
+
+# Add network priority configuration
+cat >> "${ROOTFS_DIR}/etc/NetworkManager/NetworkManager.conf" << 'EOF'
+
+[connection-ethernet]
+ipv4.route-metric=100
+
+[connection-wifi]
+ipv4.route-metric=600
+
+[connection-cellular]
+ipv4.route-metric=800
+EOF

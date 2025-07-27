@@ -122,84 +122,84 @@ EOF
         
         echo "✅ Build completed at $(date)"
 
-- name: Verify build output
-  run: |
-    echo "📦 Build artifacts:"
-    ls -la deploy/
-    
-    if ls deploy/image_*.zip 1> /dev/null 2>&1; then
-      echo "✅ Image build successful"
-      for img in deploy/image_*.zip; do
-        echo "📊 $(basename $img): $(du -h $img | cut -f1)"
-      done
-    else
-      echo "❌ No image found in deploy directory"
-      exit 1
-    fi
+      - name: Verify build output
+        run: |
+          echo "📦 Build artifacts:"
+          ls -la deploy/
+          
+          if ls deploy/image_*.zip 1> /dev/null 2>&1; then
+            echo "✅ Image build successful"
+            for img in deploy/image_*.zip; do
+              echo "📊 $(basename $img): $(du -h $img | cut -f1)"
+            done
+          else
+            echo "❌ No image found in deploy directory"
+            exit 1
+          fi
 
-- name: Upload Pi Image
-  uses: actions/upload-artifact@v4
-  with:
-    name: ${{ env.IMG_NAME }}-${{ github.run_number }}
-    path: deploy/image_*.zip
-    retention-days: 30
+      - name: Upload Pi Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMG_NAME }}-${{ github.run_number }}
+          path: deploy/image_*.zip
+          retention-days: 30
 
-- name: Upload build info
-  uses: actions/upload-artifact@v4
-  if: always()
-  with:
-    name: build-info-${{ github.run_number }}
-    path: |
-      deploy/*.info
-      deploy/*.log
-    retention-days: 7
+      - name: Upload build info
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-info-${{ github.run_number }}
+          path: |
+            deploy/*.info
+            deploy/*.log
+          retention-days: 7
 
-- name: Create release on tag
-  if: startsWith(github.ref, 'refs/tags/')
-  uses: softprops/action-gh-release@v1
-  with:
-    files: deploy/image_*.zip
-    tag_name: ${{ github.ref_name }}
-    name: AirCast Pi Image ${{ github.ref_name }}
-    body: |
-      ## AirCast Raspberry Pi Image
-      
-      **Build Details:**
-      - Image: ${{ env.IMG_NAME }}
-      - Stages: ${{ inputs.stage_list || 'stage0 stage1 stage2 stage3' }}
-      - Built: $(date)
-      - Commit: ${{ github.sha }}
-      - Runner: Swarm-hosted
-      
-      **Installation:**
-      1. Download the `.zip` file
-      2. Extract and flash to SD card using Raspberry Pi Imager
-      3. Boot your Pi and SSH with: `ssh pi@aircast.local`
-      4. Default password: `raspberry` (change immediately)
-    draft: false
-    prerelease: false
+      - name: Create release on tag
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: deploy/image_*.zip
+          tag_name: ${{ github.ref_name }}
+          name: AirCast Pi Image ${{ github.ref_name }}
+          body: |
+            ## AirCast Raspberry Pi Image
+            
+            **Build Details:**
+            - Image: ${{ env.IMG_NAME }}
+            - Stages: ${{ inputs.stage_list || 'stage0 stage1 stage2 stage3' }}
+            - Built: $(date)
+            - Commit: ${{ github.sha }}
+            - Runner: Swarm-hosted
+            
+            **Installation:**
+            1. Download the `.zip` file
+            2. Extract and flash to SD card using Raspberry Pi Imager
+            3. Boot your Pi and SSH with: `ssh pi@aircast.local`
+            4. Default password: `raspberry` (change immediately)
+          draft: false
+          prerelease: false
 
-- name: Cleanup (Swarm-Safe)
-  if: always()
-  run: |
-    echo "🧹 Cleaning up build resources..."
-    
-    # Remove build-specific containers only
-    docker ps -a --filter "name=pigen_${{ env.BUILD_ID }}" -q | xargs -r docker rm -f || true
-    
-    # Remove build network
-    docker network rm ${{ env.BUILD_ID }} 2>/dev/null || true
-    
-    # Clean up workspace
-    sudo rm -rf work/ 2>/dev/null || true
-    
-    # Safe docker cleanup (avoid swarm resources)
-    docker image prune -f --filter "dangling=true" || true
-    docker container prune -f --filter "label!=com.docker.swarm.service.name" || true
-    
-    # Verify swarm is healthy
-    echo "🔍 Verifying swarm services:"
-    docker service ls --format "table {{.Name}}\t{{.Replicas}}\t{{.Image}}" | head -5
-    
-    echo "💾 Remaining disk space:"
-    df -h / | tail -1
+      - name: Cleanup (Swarm-Safe)
+        if: always()
+        run: |
+          echo "🧹 Cleaning up build resources..."
+          
+          # Remove build-specific containers only
+          docker ps -a --filter "name=pigen_${{ env.BUILD_ID }}" -q | xargs -r docker rm -f || true
+          
+          # Remove build network
+          docker network rm ${{ env.BUILD_ID }} 2>/dev/null || true
+          
+          # Clean up workspace
+          sudo rm -rf work/ 2>/dev/null || true
+          
+          # Safe docker cleanup (avoid swarm resources)
+          docker image prune -f --filter "dangling=true" || true
+          docker container prune -f --filter "label!=com.docker.swarm.service.name" || true
+          
+          # Verify swarm is healthy
+          echo "🔍 Verifying swarm services:"
+          docker service ls --format "table {{.Name}}\t{{.Replicas}}\t{{.Image}}" | head -5
+          
+          echo "💾 Remaining disk space:"
+          df -h / | tail -1

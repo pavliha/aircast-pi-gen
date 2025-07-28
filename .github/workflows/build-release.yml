@@ -64,15 +64,22 @@ jobs:
             dosfstools libarchive-tools libcap2-bin grep rsync xz-utils file git curl bc \
             gpg pigz xxd arch-test bmap-tools
 
-      - name: Enable binfmt_misc
-        run: |
-          sudo modprobe binfmt_misc || true
-          sudo update-binfmts --enable || true
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
-      - name: Build Pi image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Pi image with Docker
         run: |
-          # Run the build script
-          sudo ./build.sh
+          echo "🚀 Starting Docker-based build..."
+          
+          # Run the Docker-based build script
+          ./build-docker.sh
+          
+          echo "✅ Build completed successfully!"
 
       - name: Prepare artifacts
         id: artifacts

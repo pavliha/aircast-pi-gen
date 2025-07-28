@@ -13,19 +13,22 @@ done
 
 # Enable WiFi by default
 on_chroot << EOF
-# Unblock WiFi hardware
-rfkill unblock wifi || true
+# Check if rfkill is available before using it
+if [ -e /dev/rfkill ]; then
+	# Unblock WiFi hardware
+	rfkill unblock wifi || true
+fi
 
 # Enable WiFi services
-systemctl enable wpa_supplicant
-systemctl enable NetworkManager
+systemctl enable wpa_supplicant || true
+systemctl enable NetworkManager || true
 
 # Set WiFi regulatory domain if specified
 if [ -v WPA_COUNTRY ]; then
-	SUDO_USER="${FIRST_USER_NAME}" raspi-config nonint do_wifi_country "${WPA_COUNTRY}"
+	SUDO_USER="${FIRST_USER_NAME}" raspi-config nonint do_wifi_country "${WPA_COUNTRY}" || true
 else
-	# Set default regulatory domain to US
-	iw reg set US || true
+	# Set default regulatory domain to US (only if iw is available)
+	which iw >/dev/null 2>&1 && iw reg set US || true
 fi
 EOF
 
@@ -70,7 +73,9 @@ DNSSEC=allow-downgrade
 Cache=yes
 EOF
 
-# Enable systemd-resolved
+# Enable systemd-resolved if available
 on_chroot << 'EOF'
-systemctl enable systemd-resolved
+if systemctl list-unit-files | grep -q systemd-resolved.service; then
+	systemctl enable systemd-resolved
+fi
 EOF

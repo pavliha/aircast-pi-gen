@@ -7,10 +7,10 @@ permissions:
   repository-projects: write
 
 on:
-  # Trigger on development version tag push
+  # Trigger on push to develop branch
   push:
-    tags:
-      - 'v*-dev.*' # Triggers on development tags like v1.0.0-dev.1
+    branches:
+      - develop
 
   workflow_dispatch:
     inputs:
@@ -35,8 +35,9 @@ jobs:
         id: version
         run: |
           if [ "${{ github.event_name }}" == "push" ]; then
-            # For tag pushes, use the tag name as version
-            VERSION="${{ github.ref_name }}"
+            # For branch pushes, generate version from commit SHA
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            VERSION="v0.0.0-dev.${SHORT_SHA}"
           else
             # For manual dispatch, use the input
             VERSION="${{ inputs.version }}"

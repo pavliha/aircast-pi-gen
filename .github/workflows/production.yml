@@ -1,4 +1,4 @@
-name: Build and Release Pi Development Images
+name: Build and Release Pi Production Images
 
 permissions:
   contents: write
@@ -7,15 +7,15 @@ permissions:
   repository-projects: write
 
 on:
-  # Trigger on push to develop branch
+  # Trigger on push to main branch
   push:
     branches:
-      - develop
+      - main
 
   workflow_dispatch:
     inputs:
       version:
-        description: 'Development version (e.g., v1.0.0-dev.1)'
+        description: 'Production version (e.g., v1.0.0)'
         required: true
         type: string
 
@@ -37,7 +37,7 @@ jobs:
           if [ "${{ github.event_name }}" == "push" ]; then
             # For branch pushes, generate version from commit SHA
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            VERSION="v0.0.0-dev.${SHORT_SHA}"
+            VERSION="v0.0.0-${SHORT_SHA}"
           else
             # For manual dispatch, use the input
             VERSION="${{ inputs.version }}"
@@ -49,7 +49,7 @@ jobs:
   build:
     needs: prepare
     runs-on: ubuntu-latest
-    environment: development
+    environment: production
 
     steps:
       - name: Checkout repository
@@ -139,7 +139,7 @@ jobs:
   release:
     needs: [prepare, build]
     runs-on: ubuntu-latest
-    environment: development
+    environment: production
 
     steps:
       - name: Download artifacts
@@ -154,11 +154,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
-          name: Aircast Pi Image ${{ needs.prepare.outputs.version }} (Development)
+          name: Aircast Pi Image ${{ needs.prepare.outputs.version }}
           body: |
-            ## Aircast Raspberry Pi Development Image
+            ## Aircast Raspberry Pi Image
 
-            This is a development release of the Raspberry Pi image for Aircast.
+            This is a production release of the Raspberry Pi image for Aircast.
 
             ### Installation
             1. Download the image file
@@ -175,7 +175,7 @@ jobs:
             ### Checksums
             SHA256 checksums are provided for verification.
           draft: false
-          prerelease: true
+          prerelease: false
           files: |
             aircast-rpi-arm64-*.zip
             aircast-rpi-arm64-*.img
@@ -232,7 +232,7 @@ jobs:
           for file in aircast-rpi-arm64-*; do
             if [ -f "$file" ]; then
               echo "Uploading: $file"
-              aws s3 cp "$file" "s3://aircast-artifacts/development/images/$VERSION/$file" --acl public-read
+              aws s3 cp "$file" "s3://aircast-artifacts/production/images/$VERSION/$file" --acl public-read
             fi
           done
           
@@ -245,19 +245,19 @@ jobs:
             "created_at": "$CREATED_AT",
             "release_notes": $(echo "$RELEASE_BODY" | jq -Rs .),
             "github_release_id": "$RELEASE_ID",
-            "mirror_url": "https://downloads.dev.aircast.one/images/$VERSION/",
+            "mirror_url": "https://downloads.aircast.one/images/$VERSION/",
             "mirrored_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           EOF
           
-          aws s3 cp release-metadata.json "s3://aircast-artifacts/development/images/$VERSION/metadata.json" --acl public-read
+          aws s3 cp release-metadata.json "s3://aircast-artifacts/production/images/$VERSION/metadata.json" --acl public-read
           
           # Update latest pointer
           echo "$VERSION" > latest.txt
-          aws s3 cp latest.txt "s3://aircast-artifacts/development/images/latest.txt" --acl public-read
+          aws s3 cp latest.txt "s3://aircast-artifacts/production/images/latest.txt" --acl public-read
           
           echo "✅ Mirror complete!"
-          echo "📍 Mirror URL: https://downloads.dev.aircast.one/images/$VERSION/"
+          echo "📍 Mirror URL: https://downloads.aircast.one/images/$VERSION/"
           
           cd ..
           rm -rf temp-assets
@@ -267,13 +267,13 @@ jobs:
           VERSION="${{ needs.prepare.outputs.version }}"
           echo "🔄 Invalidating CloudFront cache..."
           
-          # Find CloudFront distribution for downloads.dev.aircast.one
+          # Find CloudFront distribution for downloads.aircast.one
           DISTRIBUTION_ID=$(aws cloudfront list-distributions \
-            --query "DistributionList.Items[?contains(Aliases.Items, 'downloads.dev.aircast.one')].Id" \
+            --query "DistributionList.Items[?contains(Aliases.Items, 'downloads.aircast.one')].Id" \
             --output text)
           
           if [ -z "$DISTRIBUTION_ID" ]; then
-            echo "⚠️  Warning: Could not find CloudFront distribution for downloads.dev.aircast.one"
+            echo "⚠️  Warning: Could not find CloudFront distribution for downloads.aircast.one"
             echo "Please check your CloudFront configuration"
           else
             echo "Found CloudFront distribution: $DISTRIBUTION_ID"
@@ -281,7 +281,7 @@ jobs:
             # Create invalidation for latest.txt and the new version
             INVALIDATION_ID=$(aws cloudfront create-invalidation \
               --distribution-id $DISTRIBUTION_ID \
-              --paths "/development/images/latest.txt" "/development/images/$VERSION/*" \
+              --paths "/production/images/latest.txt" "/production/images/$VERSION/*" \
               --query 'Invalidation.Id' \
               --output text)
             
@@ -321,8 +321,8 @@ jobs:
             echo "### 🎉 Release Published" >> $GITHUB_STEP_SUMMARY
             echo "- **GitHub Release:** https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
             if [ "${{ needs.mirror-to-s3.result }}" == "success" ]; then
-              echo "- **S3 Mirror:** https://downloads.dev.aircast.one/images/${{ needs.prepare.outputs.version }}/" >> $GITHUB_STEP_SUMMARY
-              echo "- **Latest Version:** https://downloads.dev.aircast.one/images/latest.txt" >> $GITHUB_STEP_SUMMARY
+              echo "- **S3 Mirror:** https://downloads.aircast.one/images/${{ needs.prepare.outputs.version }}/" >> $GITHUB_STEP_SUMMARY
+              echo "- **Latest Version:** https://downloads.aircast.one/images/latest.txt" >> $GITHUB_STEP_SUMMARY
             fi
           else
             echo "### ❌ Build Failed" >> $GITHUB_STEP_SUMMARY

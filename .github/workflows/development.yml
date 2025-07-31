@@ -12,6 +12,10 @@ on:
     branches:
       - develop
 
+  # Trigger from aircast-agent webhook
+  repository_dispatch:
+    types: [build-image]
+
   workflow_dispatch:
     inputs:
       version:
@@ -38,6 +42,11 @@ jobs:
             # For branch pushes, generate version from commit SHA
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
             VERSION="v0.0.0-dev.${SHORT_SHA}"
+          elif [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            # For webhook triggers from aircast-agent
+            VERSION="${{ github.event.client_payload.version }}"
+            echo "📨 Triggered by webhook from: ${{ github.event.client_payload.trigger }}"
+            echo "🏷️ Agent version: $VERSION"
           else
             # For manual dispatch, use the input
             VERSION="${{ inputs.version }}"
@@ -306,7 +315,7 @@ jobs:
         run: |
           echo "## 🥧 Raspberry Pi Image Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Trigger:** ${{ github.event_name == 'push' && 'Tag Push' || 'Manual Dispatch' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name == 'push' && 'Branch Push' || github.event_name == 'repository_dispatch' && 'Webhook from aircast-agent' || 'Manual Dispatch' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ needs.prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Timestamp:** $(date -u)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -333,7 +342,7 @@ jobs:
         run: |
           echo "🏁 Pi image build completed"
           echo "📊 Results:"
-          echo "  - Trigger: ${{ github.event_name == 'push' && 'Tag Push' || 'Manual Dispatch' }}"
+          echo "  - Trigger: ${{ github.event_name == 'push' && 'Branch Push' || github.event_name == 'repository_dispatch' && 'Webhook' || 'Manual Dispatch' }}"
           echo "  - Version: ${{ needs.prepare.outputs.version }}"
           echo "  - Build Status: ${{ needs.build.result }}"
           echo "  - Release Status: ${{ needs.release.result }}"

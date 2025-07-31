@@ -89,14 +89,59 @@ jobs:
           
           echo "✅ Configuration created"
 
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-prod-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            buildx-prod-${{ runner.os }}-
+
+      - name: Cache pi-gen work directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            work/stage0
+            work/stage1
+            work/stage2
+            work/*/export-image
+          key: pi-gen-stages-prod-${{ runner.os }}-${{ hashFiles('stage0/**', 'stage1/**', 'stage2/**', 'config') }}
+          restore-keys: |
+            pi-gen-stages-prod-${{ runner.os }}-
+
       - name: Build Pi image with Docker
         run: |
           echo "🚀 Starting Docker-based build..."
           
-          # Run the Docker-based build script
+          # Production always gets a full build for reliability
           ./build-docker.sh
           
           echo "✅ Build completed successfully!"
+
+      - name: Build Statistics
+        if: always()
+        run: |
+          echo "📊 Build Statistics:"
+          echo "==================="
+          
+          echo "📦 Production build: Full build (all stages)"
+          
+          # Show stage sizes
+          echo ""
+          echo "📁 Stage sizes:"
+          for stage in stage0 stage1 stage2 stage3; do
+            if [ -d "work/$stage" ]; then
+              SIZE=$(du -sh "work/$stage" 2>/dev/null | cut -f1 || echo "N/A")
+              echo "  - $stage: $SIZE"
+            fi
+          done
+          
+          # Show build logs
+          if [ -f deploy/build-docker.log ]; then
+            echo ""
+            echo "⏱️  Build time:"
+            grep -E "real|user|sys" deploy/build-docker.log | tail -3 || true
+          fi
 
       - name: Prepare artifacts
         id: artifacts

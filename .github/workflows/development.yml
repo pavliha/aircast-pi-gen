@@ -98,14 +98,87 @@ jobs:
           
           echo "✅ Configuration created"
 
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: buildx-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            buildx-${{ runner.os }}-
+
+      - name: Cache pi-gen work directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            work/stage0
+            work/stage1
+            work/stage2
+            work/*/export-image
+          key: pi-gen-stages-${{ runner.os }}-${{ hashFiles('stage0/**', 'stage1/**', 'stage2/**', 'config') }}
+          restore-keys: |
+            pi-gen-stages-${{ runner.os }}-
+
       - name: Build Pi image with Docker
         run: |
           echo "🚀 Starting Docker-based build..."
           
-          # Run the Docker-based build script
-          ./build-docker.sh
+          # Check if this is just an agent update
+          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "📦 Webhook trigger - attempting incremental build..."
+            if [ -d work/stage2 ] && [ -f work/stage2/EXPORT_IMAGE ]; then
+              echo "✅ Found cached stages - building incrementally"
+              # Use the fast build script with incremental flag
+              if [ -f ./build-docker-fast.sh ]; then
+                ./build-docker-fast.sh -i
+              else
+                # Fallback to regular build with manual SKIP files
+                touch work/stage0/SKIP work/stage1/SKIP work/stage2/SKIP
+                ./build-docker.sh
+              fi
+            else
+              echo "⚠️  No cached stages found - running full build"
+              ./build-docker.sh
+            fi
+          else
+            # Full build for non-webhook triggers
+            ./build-docker.sh
+          fi
           
           echo "✅ Build completed successfully!"
+
+      - name: Build Statistics
+        if: always()
+        run: |
+          echo "📊 Build Statistics:"
+          echo "==================="
+          
+          # Check cache hit rate
+          if [ -d work/stage2 ] && [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "✅ Incremental build: YES (stage3 only)"
+            echo "⏱️  Estimated time saved: ~30-40 minutes"
+          else
+            echo "📦 Full build: YES (all stages)"
+          fi
+          
+          # Show stage sizes
+          echo ""
+          echo "📁 Stage sizes:"
+          for stage in stage0 stage1 stage2 stage3; do
+            if [ -d "work/$stage" ]; then
+              SIZE=$(du -sh "work/$stage" 2>/dev/null | cut -f1 || echo "N/A")
+              echo "  - $stage: $SIZE"
+            fi
+          done
+          
+          # Show build logs
+          if [ -f deploy/build-docker.log ]; then
+            echo ""
+            echo "⏱️  Build time:"
+            grep -E "real|user|sys" deploy/build-docker.log | tail -3 || true
+          fi
 
       - name: Prepare artifacts
         id: artifacts

@@ -109,41 +109,29 @@ jobs:
           restore-keys: |
             buildx-${{ runner.os }}-
 
-      - name: Cache pi-gen work directory
+      - name: Cache pi-gen build stages
         uses: actions/cache@v4
+        id: cache-stages
         with:
           path: |
-            work/stage0
-            work/stage1
-            work/stage2
-            work/*/export-image
+            .build-cache
           key: pi-gen-stages-${{ runner.os }}-${{ hashFiles('stage0/**', 'stage1/**', 'stage2/**', 'config') }}
           restore-keys: |
             pi-gen-stages-${{ runner.os }}-
 
       - name: Build Pi image with Docker
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           echo "🚀 Starting Docker-based build..."
+          echo "📋 Event: ${{ github.event_name }}"
+          echo "🗂️ Cache hit: ${{ steps.cache-stages.outputs.cache-hit }}"
           
-          # Check if this is just an agent update
-          if [ "${{ github.event_name }}" == "repository_dispatch" ]; then
-            echo "📦 Webhook trigger - attempting incremental build..."
-            if [ -d work/stage2 ] && [ -f work/stage2/EXPORT_IMAGE ]; then
-              echo "✅ Found cached stages - building incrementally"
-              # Use the fast build script with incremental flag
-              if [ -f ./build-docker-fast.sh ]; then
-                ./build-docker-fast.sh -i
-              else
-                # Fallback to regular build with manual SKIP files
-                touch work/stage0/SKIP work/stage1/SKIP work/stage2/SKIP
-                ./build-docker.sh
-              fi
-            else
-              echo "⚠️  No cached stages found - running full build"
-              ./build-docker.sh
-            fi
+          # Use GitHub-optimized build script if available
+          if [ -f ./build-docker-github.sh ]; then
+            ./build-docker-github.sh
           else
-            # Full build for non-webhook triggers
+            # Fallback to regular build
             ./build-docker.sh
           fi
           

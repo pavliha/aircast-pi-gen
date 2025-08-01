@@ -23,6 +23,16 @@ if [ -f "$DIR/.build-cache/stage2-complete.marker" ]; then
     fi
 fi
 
+# GitHub Actions has qemu setup via docker/setup-qemu-action
+# Create a fake qemu-aarch64-static to bypass the check in build-docker.sh
+if [ -n "${GITHUB_ACTIONS:-}" ] && [ ! -f /usr/bin/qemu-aarch64-static ]; then
+    echo "🔧 Setting up qemu bypass for GitHub Actions..."
+    sudo mkdir -p /usr/bin
+    echo '#!/bin/sh' | sudo tee /usr/bin/qemu-aarch64-static > /dev/null
+    echo 'exec qemu-aarch64 "$@"' | sudo tee -a /usr/bin/qemu-aarch64-static > /dev/null
+    sudo chmod +x /usr/bin/qemu-aarch64-static
+fi
+
 # Run the regular build
 if [ -f ./build-docker-fast.sh ] && [ "${INCREMENTAL:-0}" == "1" ]; then
     ./build-docker-fast.sh -i "$@"

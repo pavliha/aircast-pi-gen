@@ -326,6 +326,19 @@ jobs:
           echo "$VERSION" > latest.txt
           aws s3 cp latest.txt "s3://aircast-artifacts/development/images/latest.txt" --acl public-read
           
+          # Create latest symlinks for direct download
+          echo "📎 Creating latest symlinks..."
+          for file in aircast-rpi-arm64-*; do
+            if [ -f "$file" ]; then
+              # Extract file extension
+              if [[ "$file" == *.zip ]]; then
+                aws s3 cp "$file" "s3://aircast-artifacts/development/images/latest/aircast-rpi-arm64-latest.zip" --acl public-read
+              elif [[ "$file" == *.sha256 ]]; then
+                aws s3 cp "$file" "s3://aircast-artifacts/development/images/latest/aircast-rpi-arm64-latest.zip.sha256" --acl public-read
+              fi
+            fi
+          done
+          
           echo "✅ Mirror complete!"
           echo "📍 Mirror URL: https://downloads.dev.aircast.one/images/$VERSION/"
           
@@ -348,7 +361,7 @@ jobs:
           else
             echo "Found CloudFront distribution: $DISTRIBUTION_ID"
             
-            # Create invalidation for latest.txt and the new version
+            # Create invalidation for latest.txt, latest/* and the new version
             INVALIDATION_ID=$(aws cloudfront create-invalidation \
               --distribution-id $DISTRIBUTION_ID \
               --paths "/images/latest.txt" "/images/$VERSION/*" \

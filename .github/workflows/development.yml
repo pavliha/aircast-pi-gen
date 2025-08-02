@@ -351,7 +351,7 @@ jobs:
             # Create invalidation for latest.txt and the new version
             INVALIDATION_ID=$(aws cloudfront create-invalidation \
               --distribution-id $DISTRIBUTION_ID \
-              --paths "/development/images/latest.txt" "/development/images/$VERSION/*" \
+              --paths "/images/latest.txt" "/images/$VERSION/*" \
               --query 'Invalidation.Id' \
               --output text)
             

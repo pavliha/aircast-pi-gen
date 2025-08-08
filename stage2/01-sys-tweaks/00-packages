@@ -31,4 +31,3 @@ rpi-eeprom
 raspi-utils
 unzip zip
 file
-python3-venv

@@ -1,5 +1,6 @@
 git
 curl
+gnupg
 zsh
 rfkill
 libcamera-tools

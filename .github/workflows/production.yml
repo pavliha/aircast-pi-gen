@@ -12,6 +12,10 @@ on:
     branches:
       - main
 
+  # Trigger from aircast-agent webhook
+  repository_dispatch:
+    types: [build-image]
+
   workflow_dispatch:
     inputs:
       version:
@@ -37,14 +41,19 @@ jobs:
           if [ "${{ github.event_name }}" == "push" ]; then
             # For branch pushes, generate version from commit SHA
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            VERSION="v0.0.0-${SHORT_SHA}"
+            VERSION="v1.0.0.${SHORT_SHA}"
+          elif [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            # For webhook triggers from aircast-agent
+            VERSION="${{ github.event.client_payload.version }}"
+            echo "📨 Triggered by webhook from: ${{ github.event.client_payload.trigger }}"
+            echo "🏷️ Agent version: $VERSION"
           else
             # For manual dispatch, use the input
             VERSION="${{ inputs.version }}"
           fi
           
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "🏷️ Development release: $VERSION"
+          echo "🏷️ Production release: $VERSION"
 
   build:
     needs: prepare
@@ -89,32 +98,42 @@ jobs:
           
           echo "✅ Configuration created"
 
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Cache Docker layers
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: buildx-prod-${{ runner.os }}-${{ github.sha }}
+          key: buildx-${{ runner.os }}-${{ github.sha }}
           restore-keys: |
-            buildx-prod-${{ runner.os }}-
+            buildx-${{ runner.os }}-
 
-      - name: Cache pi-gen work directory
+      - name: Cache pi-gen build stages
         uses: actions/cache@v4
+        id: cache-stages
         with:
           path: |
-            work/stage0
-            work/stage1
-            work/stage2
-            work/*/export-image
-          key: pi-gen-stages-prod-${{ runner.os }}-${{ hashFiles('stage0/**', 'stage1/**', 'stage2/**', 'config') }}
+            .build-cache
+          key: pi-gen-stages-${{ runner.os }}-${{ hashFiles('stage0/**', 'stage1/**', 'stage2/**', 'config') }}
           restore-keys: |
-            pi-gen-stages-prod-${{ runner.os }}-
+            pi-gen-stages-${{ runner.os }}-
 
       - name: Build Pi image with Docker
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           echo "🚀 Starting Docker-based build..."
+          echo "📋 Event: ${{ github.event_name }}"
+          echo "🗂️ Cache hit: ${{ steps.cache-stages.outputs.cache-hit }}"
           
-          # Production always gets a full build for reliability
-          ./build-docker.sh
+          # Use GitHub-optimized build script if available
+          if [ -f ./build-docker-github.sh ]; then
+            ./build-docker-github.sh
+          else
+            # Fallback to regular build
+            ./build-docker.sh
+          fi
           
           echo "✅ Build completed successfully!"
 
@@ -124,7 +143,13 @@ jobs:
           echo "📊 Build Statistics:"
           echo "==================="
           
-          echo "📦 Production build: Full build (all stages)"
+          # Check cache hit rate
+          if [ -d work/stage2 ] && [ "${{ github.event_name }}" == "repository_dispatch" ]; then
+            echo "✅ Incremental build: YES (stage3 only)"
+            echo "⏱️  Estimated time saved: ~30-40 minutes"
+          else
+            echo "📦 Full build: YES (all stages)"
+          fi
           
           # Show stage sizes
           echo ""
@@ -301,6 +326,19 @@ jobs:
           echo "$VERSION" > latest.txt
           aws s3 cp latest.txt "s3://aircast-artifacts/production/images/latest.txt" --acl public-read
           
+          # Create latest symlinks for direct download
+          echo "📎 Creating latest symlinks..."
+          for file in aircast-rpi-arm64-*; do
+            if [ -f "$file" ]; then
+              # Extract file extension
+              if [[ "$file" == *.zip ]]; then
+                aws s3 cp "$file" "s3://aircast-artifacts/production/images/latest/aircast-rpi-arm64-latest.zip" --acl public-read
+              elif [[ "$file" == *.sha256 ]]; then
+                aws s3 cp "$file" "s3://aircast-artifacts/production/images/latest/aircast-rpi-arm64-latest.zip.sha256" --acl public-read
+              fi
+            fi
+          done
+          
           echo "✅ Mirror complete!"
           echo "📍 Mirror URL: https://downloads.aircast.one/images/$VERSION/"
           
@@ -322,22 +360,22 @@ jobs:
             echo "Please check your CloudFront configuration"
           else
             echo "Found CloudFront distribution: $DISTRIBUTION_ID"
-            
-            # Create invalidation for latest.txt and the new version
+          
+            # Create invalidation for latest.txt, latest/* and the new version
             INVALIDATION_ID=$(aws cloudfront create-invalidation \
               --distribution-id $DISTRIBUTION_ID \
-              --paths "/production/images/latest.txt" "/production/images/$VERSION/*" \
+              --paths "/images/latest.txt" "/images/$VERSION/*" \
               --query 'Invalidation.Id' \
               --output text)
-            
+          
             echo "Created invalidation: $INVALIDATION_ID"
-            
+          
             # Wait for invalidation to complete (with timeout)
             echo "Waiting for CloudFront invalidation to complete..."
             timeout 300 aws cloudfront wait invalidation-completed \
               --distribution-id $DISTRIBUTION_ID \
               --id $INVALIDATION_ID || echo "⚠️  Invalidation is taking longer than expected"
-            
+          
             echo "✅ CloudFront cache invalidated!"
           fi
 
@@ -351,7 +389,7 @@ jobs:
         run: |
           echo "## 🥧 Raspberry Pi Image Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Trigger:** ${{ github.event_name == 'push' && 'Tag Push' || 'Manual Dispatch' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Trigger:** ${{ github.event_name == 'push' && 'Branch Push' || github.event_name == 'repository_dispatch' && 'Webhook from aircast-agent' || 'Manual Dispatch' }}" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{ needs.prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Timestamp:** $(date -u)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -378,7 +416,7 @@ jobs:
         run: |
           echo "🏁 Pi image build completed"
           echo "📊 Results:"
-          echo "  - Trigger: ${{ github.event_name == 'push' && 'Tag Push' || 'Manual Dispatch' }}"
+          echo "  - Trigger: ${{ github.event_name == 'push' && 'Branch Push' || github.event_name == 'repository_dispatch' && 'Webhook' || 'Manual Dispatch' }}"
           echo "  - Version: ${{ needs.prepare.outputs.version }}"
           echo "  - Build Status: ${{ needs.build.result }}"
           echo "  - Release Status: ${{ needs.release.result }}"

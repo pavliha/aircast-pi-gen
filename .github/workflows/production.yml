@@ -14,7 +14,7 @@ on:
 
   # Trigger from aircast-agent webhook
   repository_dispatch:
-    types: [build-image]
+    types: [build-production-image]
 
   workflow_dispatch:
     inputs:

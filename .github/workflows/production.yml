@@ -149,6 +149,8 @@ jobs:
       - name: Build Pi image with Docker
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          GITHUB_REF: ${{ github.ref }}
           PRESERVE_CONTAINER: 1
         run: |
           echo "🚀 Starting Docker-based build..."

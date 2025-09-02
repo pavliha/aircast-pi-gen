@@ -59,7 +59,7 @@ jobs:
 
   build:
     needs: prepare
-    runs-on: ubuntu-latest-4-cores
+    runs-on: self-hosted
     environment: production
 
     steps:

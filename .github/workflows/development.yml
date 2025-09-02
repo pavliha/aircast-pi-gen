@@ -139,6 +139,13 @@ jobs:
           restore-keys: |
             pi-gen-build-${{ runner.os }}-
 
+      - name: Clean up Docker containers
+        run: |
+          echo "🧹 Cleaning up any existing Docker containers..."
+          docker rm -f pigen_work 2>/dev/null || true
+          docker rm -f pigen_work_cont 2>/dev/null || true
+          echo "✅ Container cleanup completed"
+
       - name: Build Pi image with Docker
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}

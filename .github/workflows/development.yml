@@ -57,7 +57,7 @@ jobs:
 
   build:
     needs: prepare
-    runs-on: self-hosted
+    runs-on: [self-hosted, dev]
     environment: development
 
     steps:

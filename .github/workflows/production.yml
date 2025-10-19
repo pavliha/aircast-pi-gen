@@ -28,14 +28,12 @@ env:
 
 jobs:
   prepare:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.ref || github.ref }}
 
       - name: Determine version
         id: version
@@ -43,7 +41,7 @@ jobs:
           if [ "${{ github.event_name }}" == "push" ]; then
             # For branch pushes, generate version from commit SHA
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            VERSION="v1.0.0.${SHORT_SHA}"
+            VERSION="v1.1.3.${SHORT_SHA}"
           elif [ "${{ github.event_name }}" == "repository_dispatch" ]; then
             # For webhook triggers from aircast-agent
             VERSION="${{ github.event.client_payload.version }}"
@@ -59,7 +57,7 @@ jobs:
 
   build:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: production
 
     steps:
@@ -73,7 +71,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /var/cache/apt/archives
-          key: apt-${{ runner.os }}-${{ hashFiles('**/production.yml') }}
+          key: apt-${{ runner.os }}-v1
           restore-keys: |
             apt-${{ runner.os }}-
 
@@ -112,35 +110,27 @@ jobs:
           
           echo "✅ Configuration created"
 
-      - name: Cache Docker layers
+      - name: Cache Docker data
         uses: actions/cache@v4
         with:
-          path: /tmp/.buildx-cache
-          key: buildx-${{ runner.os }}-${{ hashFiles('Dockerfile*', 'stage*/**') }}-${{ github.sha }}
+          path: |
+            ~/.docker
+          key: docker-${{ runner.os }}-v1
           restore-keys: |
-            buildx-${{ runner.os }}-${{ hashFiles('Dockerfile*', 'stage*/**') }}-
-            buildx-${{ runner.os }}-
+            docker-${{ runner.os }}-
 
-      - name: Cache pi-gen work directory
+      - name: Cache pi-gen build artifacts
         uses: actions/cache@v4
-        id: cache-work
+        id: cache-pigen
         with:
           path: |
             work
-          key: pi-gen-work-${{ runner.os }}-${{ hashFiles('stage0/**', 'stage1/**', 'stage2/**', 'config') }}
-          restore-keys: |
-            pi-gen-work-${{ runner.os }}-
-
-      - name: Cache pi-gen build cache
-        uses: actions/cache@v4
-        id: cache-build
-        with:
-          path: |
+            deploy
             .build-cache
-            work/*.log
-          key: pi-gen-build-${{ runner.os }}-${{ hashFiles('config', 'stage*/**') }}
+          key: pi-gen-${{ runner.os }}-v1
           restore-keys: |
-            pi-gen-build-${{ runner.os }}-
+            pi-gen-${{ runner.os }}-
+            pi-gen-
 
       - name: Clean up Docker containers
         run: |
@@ -152,19 +142,16 @@ jobs:
       - name: Build Pi image with Docker
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
-          GITHUB_WORKFLOW: ${{ github.workflow }}
-          GITHUB_REF: ${{ github.ref }}
           PRESERVE_CONTAINER: 1
         run: |
           echo "🚀 Starting Docker-based build..."
           echo "📋 Event: ${{ github.event_name }}"
           echo "🗂️ Cache hits:"
-          echo "  - Work: ${{ steps.cache-work.outputs.cache-hit }}"
-          echo "  - Build: ${{ steps.cache-build.outputs.cache-hit }}"
+          echo "  - Pi-gen artifacts: ${{ steps.cache-pigen.outputs.cache-hit }}"
           
           # Create SKIP files for cached stages to optimize build
-          if [ "${{ steps.cache-work.outputs.cache-hit }}" == "true" ]; then
-            echo "⏭️  Cached work directory found - enabling incremental build"
+          if [ "${{ steps.cache-pigen.outputs.cache-hit }}" == "true" ]; then
+            echo "⏭️  Cached pi-gen artifacts found - enabling incremental build"
             # The build scripts will handle SKIP file creation
             export USE_CACHED_STAGES=1
           fi
@@ -186,18 +173,12 @@ jobs:
           echo "==================="
           
           # Check cache hit rate and estimate time savings
-          if [ "${{ steps.cache-work.outputs.cache-hit }}" == "true" ]; then
-            echo "✅ Incremental build: YES (cached stages available)"
+          if [ "${{ steps.cache-pigen.outputs.cache-hit }}" == "true" ]; then
+            echo "✅ Incremental build: YES (cached artifacts available)"
             echo "⏱️  Estimated time saved: ~30-45 minutes"
           else
-            echo "📦 Full build: YES (all stages)"
-            echo "⏱️  No cache benefit"
-          fi
-          
-          if [ "${{ steps.cache-build.outputs.cache-hit }}" == "true" ]; then
-            echo "✅ Build cache: HIT"
-          else
-            echo "📦 Build cache: MISS"
+            echo "📦 Full build: YES (no cache available)"
+            echo "⏱️  No cache benefit this run"
           fi
           
           # Show stage sizes
@@ -257,7 +238,7 @@ jobs:
 
   release:
     needs: [prepare, build]
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     environment: production
 
     steps:
@@ -275,7 +256,7 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.version }}
           name: Aircast Pi Image ${{ needs.prepare.outputs.version }}
           body: |
-            ## Aircast Raspberry Pi Image
+            ## Aircast Raspberry Pi Development Image
 
             This is a production release of the Raspberry Pi image for Aircast.
 
@@ -305,7 +286,7 @@ jobs:
   mirror-to-s3:
     needs: [prepare, build, release]
     if: needs.release.result == 'success'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Configure AWS credentials
@@ -431,7 +412,7 @@ jobs:
   notify:
     needs: [prepare, build, release, mirror-to-s3]
     if: always()
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Generate build summary

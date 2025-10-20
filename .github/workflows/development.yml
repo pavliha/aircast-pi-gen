@@ -147,14 +147,14 @@ jobs:
           echo "📋 Event: ${{ github.event_name }}"
           echo "🗂️ Cache hits:"
           echo "  - Pi-gen artifacts: ${{ steps.cache-pigen.outputs.cache-hit }}"
-          
+
           # Create SKIP files for cached stages to optimize build
           if [ "${{ steps.cache-pigen.outputs.cache-hit }}" == "true" ]; then
             echo "⏭️  Cached pi-gen artifacts found - enabling incremental build"
             # The build scripts will handle SKIP file creation
             export USE_CACHED_STAGES=1
           fi
-          
+
           # Use GitHub-optimized build script if available
           if [ -f ./build-docker-github.sh ]; then
             ./build-docker-github.sh
@@ -162,8 +162,18 @@ jobs:
             # Fallback to regular build
             ./build-docker.sh
           fi
-          
+
           echo "✅ Build completed successfully!"
+
+      - name: Clean up Docker resources
+        if: always()
+        run: |
+          echo "🧹 Cleaning up Docker resources..."
+          docker rm -v -f pigen_work 2>/dev/null || true
+          docker rm -v -f pigen_work_cont 2>/dev/null || true
+          docker volume prune -f
+          docker image prune -f
+          echo "✅ Cleanup completed"
 
       - name: Build Statistics
         if: always()
